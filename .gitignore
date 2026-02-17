@@ -1,0 +1,7 @@
+.DS_Store
+.build/
+DadSoft/.build/
+DadSoft/DadSoft.app/
+DadSoft.app/
+DadSoft/dmg_staging/
+DadSoft/*.dmg

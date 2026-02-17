@@ -1,0 +1,114 @@
+name: Build and Release DadSoft
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build DadSoft.app
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build release binary
+        working-directory: DadSoft
+        run: swift build -c release
+
+      - name: Create .app bundle
+        working-directory: DadSoft
+        run: |
+          APP="DadSoft.app"
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/Resources"
+          cp .build/release/DadSoft "$APP/Contents/MacOS/"
+          cp Resources/Info.plist "$APP/Contents/"
+          cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+
+          # Copy SPM resource bundles (images, etc.)
+          for bundle in .build/release/*.bundle; do
+            [ -e "$bundle" ] && cp -r "$bundle" "$APP/Contents/Resources/"
+          done
+
+          # Strip extended attributes that break codesign
+          xattr -cr "$APP"
+
+      - name: Ad-hoc codesign with entitlements
+        working-directory: DadSoft
+        run: |
+          codesign --entitlements Resources/entitlements.plist \
+                   --force --deep -s - DadSoft.app
+
+      - name: Verify codesign
+        working-directory: DadSoft
+        run: codesign -dvv DadSoft.app
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create DMG
+        working-directory: DadSoft
+        run: |
+          DMG_NAME="DadSoft-Installer.dmg"
+          create-dmg \
+            --volname "DadSoft" \
+            --background "Resources/dmg_background.png" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 160 \
+            --icon "DadSoft.app" 180 170 \
+            --app-drop-link 480 170 \
+            --no-internet-enable \
+            "$DMG_NAME" \
+            "DadSoft.app"
+          echo "DMG_PATH=DadSoft/$DMG_NAME" >> "$GITHUB_ENV"
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: DadSoft ${{ steps.tag.outputs.version }}
+          body: |
+            ## How to Install DadSoft
+
+            **Step 1.** Click on **DadSoft-Installer.dmg** below to download it.
+
+            **Step 2.** Open the downloaded file and drag **DadSoft** into the **Applications** folder.
+
+            **Step 3.** Open **Applications** and double-click **DadSoft**. macOS will show a warning — click **Done** (don't move to trash).
+
+            **Step 4.** Go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to the DadSoft message. Click **Open** on the dialog that appears. You only have to do this once. ([Detailed guide with pictures](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac))
+
+            That's it! DadSoft will open normally from now on.
+
+            ---
+
+            **What is DadSoft?**
+            A toolkit for your Mac that helps you set up Windows 11 and remote control access. Everything is step-by-step with big buttons — no Terminal or technical knowledge needed.
+
+            **Requirements:** Apple Silicon Mac (M1/M2/M3/M4), macOS 13 or later, internet connection, ~30 GB free space.
+          files: ${{ env.DMG_PATH }}
+          draft: false
+          prerelease: false

@@ -412,27 +412,26 @@ final class InstallerViewModel: ObservableObject {
             appendLog("Homebrew: already installed")
         } else {
             appendLog("Installing Homebrew (you may be asked for your password)...")
-            let brewResult = await ShellRunner.runWithAdmin(
-                "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+            // Pre-create the Homebrew prefix with admin privileges so the
+            // installer doesn't need sudo (which fails without a TTY).
+            let username = NSUserName()
+            let _ = await ShellRunner.runWithAdmin(
+                "mkdir -p /opt/homebrew && chown -R \(username) /opt/homebrew"
             )
+            // Install as the current user — no sudo needed since the prefix
+            // is already owned by us.
+            let brewResult = await ShellRunner.run(
+                "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"") { [weak self] line in
+                guard let vm = self else { return }
+                Task { @MainActor in vm.appendLog(line) }
+            }
             if brewResult.exitCode == 0 {
                 prereqs[1].installed = true
                 appendLog("Homebrew installed")
             } else {
-                // Try the non-admin NONINTERACTIVE approach
-                let altResult = await ShellRunner.run(
-                    "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"") { [weak self] line in
-                    guard let vm = self else { return }
-                    Task { @MainActor in vm.appendLog(line) }
-                }
-                if altResult.exitCode == 0 {
-                    prereqs[1].installed = true
-                    appendLog("Homebrew installed")
-                } else {
-                    prereqs[1].failed = true
-                    fail(.installPrereqs, "Homebrew installation failed. Check logs for details.")
-                    return
-                }
+                prereqs[1].failed = true
+                fail(.installPrereqs, "Homebrew installation failed. Check logs for details.")
+                return
             }
             prereqs[1].installing = false
         }
@@ -772,7 +771,11 @@ final class InstallerViewModel: ObservableObject {
         // Check for Homebrew first
         let brewCheck = await ShellRunner.run("command -v brew")
         if brewCheck.exitCode != 0 {
-            appendLog("Installing Homebrew first...")
+            appendLog("Installing Homebrew first (you may be asked for your password)...")
+            let username = NSUserName()
+            let _ = await ShellRunner.runWithAdmin(
+                "mkdir -p /opt/homebrew && chown -R \(username) /opt/homebrew"
+            )
             let brewResult = await ShellRunner.run(
                 "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"") { [weak self] line in
                 guard let vm = self else { return }

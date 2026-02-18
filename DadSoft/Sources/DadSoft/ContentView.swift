@@ -163,21 +163,20 @@ struct ContentView: View {
 
                 Spacer()
 
-                if !vm.sonName.isEmpty {
-                    Button("Sending to \(vm.sonName)") {
-                        vm.showSonSetup = true
+                Button(action: { vm.showSonSetup = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.crop.circle")
+                        if !vm.sonName.isEmpty {
+                            Text(vm.sonName)
+                            Text("(change)")
+                                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                        } else {
+                            Text("Set up contact")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 12))
-                } else {
-                    Button("Set up contact") {
-                        vm.showSonSetup = true
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 12))
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
             }
             .padding(16)
         }
